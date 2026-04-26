@@ -22,7 +22,12 @@ void setupDisplay() {
     display.display();
 }
 
-void updateDisplay(uint32_t txCount, const String& radioStatus, const char* lastRxMsg) {
+void updateDisplay(
+  uint32_t txCount,
+  const String& radioFreq,
+  const String& radioStatus, 
+  const char* lastRxMsg
+) {
     display.clear();
 
     display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -30,7 +35,7 @@ void updateDisplay(uint32_t txCount, const String& radioStatus, const char* last
     display.drawString(0, 0, "HELTEC LORA32 V3");
     display.drawHorizontalLine(0, 12, 128);
     
-    display.drawString(0, 16, "Freq: 869.525 MHz");
+    display.drawString(0, 16, "Freq: "+ radioFreq +" MHz");
     display.drawString(0, 28, "Status: " + radioStatus);
     
     display.setFont(ArialMT_Plain_10);

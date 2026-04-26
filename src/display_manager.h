@@ -10,6 +10,11 @@
 #define OLED_SCL   18
 
 void setupDisplay();
-void updateDisplay(uint32_t txCount, const String& radioStatus, const char* testPayload);
+void updateDisplay(
+    uint32_t txCount, 
+    const String& radioFreq, 
+    const String& radioStatus, 
+    const char* testPayload
+);
 
 #endif
