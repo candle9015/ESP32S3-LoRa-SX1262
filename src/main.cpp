@@ -5,6 +5,11 @@
 // Test 4 PWM
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+// Bluetooth LE per iOS
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
 // Definizione Pin Heltec V3
 //Display
@@ -33,11 +38,25 @@ SX1262 radio = SX1262(mod);
 #define PREAMBLE 32
 #define CTRL_BITS 0xB4
 
+// UUID per BLE (Generati casualmente)
+#define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID_TX "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristicTX = NULL;
+bool deviceConnected = false;
+String bleIncomingMsg = "";
+String bleOutgoingMsg = "";
+
+String handleBleCommand(const String& command);
+String normalizeBleCommand(const String& command);
+
 // Variabili di stato
 uint32_t txCount = 0;
 uint32_t rxCount = 0;
 String radioStatus = "Inizializzazione...";
 String lastRxMsg = "Nessun dato";
+String currentRadioFreq = String(FREQ_RTX, 3);
 char displayMsg[32];
 
 // Specifichiamo di usare Wire1 (il secondo bus hardware)
@@ -51,6 +70,45 @@ uint32_t isPwmResponding = 1;
 
 // Variabile per tracciare la posizione corrente del servo
 uint16_t currentServoPos = (SERVOMIN + SERVOMAX) / 2;
+
+// Callback per ricezione dati da iOS via BLE
+class MyCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() > 0) {
+            bleIncomingMsg = String(value.c_str());
+            Serial.print("[BLE] Ricevuto da iOS: ");
+            Serial.println(bleIncomingMsg);
+            
+            String ack = handleBleCommand(bleIncomingMsg);
+            if (ack.length() > 0 && pCharacteristicTX != NULL) {
+                bleOutgoingMsg = ack;
+                pCharacteristicTX->setValue(ack.c_str());
+                pCharacteristicTX->notify();
+
+                radioStatus = "BLE OK";
+                lastRxMsg = bleIncomingMsg + " -> " + ack;
+                updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
+            }
+        }
+    }
+};
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+        deviceConnected = true;
+        radioStatus = "BLE CONN";
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
+        Serial.println("[BLE] iPhone connesso!");
+    };
+    void onDisconnect(BLEServer* pServer) {
+        deviceConnected = false;
+        radioStatus = "BLE DISC";
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
+        Serial.println("[BLE] iPhone disconnesso!");
+        BLEDevice::startAdvertising(); // Riavvia advertising
+    }
+};
 
 void setup4pwm() {
     Serial.println("--- RESET BUS I2C ---"); 
@@ -126,8 +184,118 @@ void setup4LoRa() {
     pinMode(RADIO_DIO1, INPUT);
 }
 
+void setupBLE() {
+    BLEDevice::init("LoRa_Web_Bridge");
+    pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new MyServerCallbacks());
+
+    BLEService *pService = pServer->createService(SERVICE_UUID);
+    pCharacteristicTX = pService->createCharacteristic(
+                        CHARACTERISTIC_UUID_TX,
+                        BLECharacteristic::PROPERTY_READ |
+                        BLECharacteristic::PROPERTY_WRITE |
+                        BLECharacteristic::PROPERTY_NOTIFY
+                      );
+
+    pCharacteristicTX->setCallbacks(new MyCallbacks());
+    pCharacteristicTX->addDescriptor(new BLE2902());
+    pService->start();
+
+    BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+    BLEDevice::startAdvertising();
+    Serial.println("[BLE] In attesa di connessione iOS...");
+}
+
+String handleBleCommand(const String& command) {
+    String trimmed = normalizeBleCommand(command);
+    trimmed.trim();
+
+    if (trimmed == "PING") {
+        return "[BLE][ACK] PONG";
+    }
+
+    if (trimmed == "STATUS") {
+        return "[BLE][ACK] STATUS | RSSI=" + String(radio.getRSSI()) + " dBm";
+    }
+
+    int separator = trimmed.indexOf('=');
+    if (separator <= 0) {
+        return "[BLE][ERR] Comando non valido: " + trimmed;
+    }
+
+    String key = trimmed.substring(0, separator);
+    String value = trimmed.substring(separator + 1);
+    key.trim();
+    value.trim();
+
+    if (key == "FREQ") {
+        float freq = value.toFloat();
+        if (freq > 0.0f) {
+            radio.standby();
+            delay(5);
+            int state = radio.setFrequency(freq);
+            if (state == RADIOLIB_ERR_NONE) {
+                currentRadioFreq = String(freq, 3);
+                updateDisplay(txCount, currentRadioFreq, "BLE FREQ OK", bleIncomingMsg.c_str());
+                radio.startReceive();
+                return "[BLE][ACK] FREQ=" + String(freq, 3);
+            }
+            return "[BLE][ERR] FREQ " + String(state);
+        }
+    }
+
+    if (key == "POWER") {
+        int power = value.toInt();
+        int state = radio.setOutputPower(power);
+        if (state == RADIOLIB_ERR_NONE) {
+            return "[BLE][ACK] POWER=" + String(power);
+        }
+        return "[BLE][ERR] POWER " + String(state);
+    }
+
+    if (key == "SF") {
+        int sf = value.toInt();
+        int state = radio.setSpreadingFactor(sf);
+        if (state == RADIOLIB_ERR_NONE) {
+            return "[BLE][ACK] SF=" + String(sf);
+        }
+        return "[BLE][ERR] SF " + String(state);
+    }
+
+    if (key == "BW") {
+        float bw = value.toFloat();
+        int state = radio.setBandwidth(bw);
+        if (state == RADIOLIB_ERR_NONE) {
+            return "[BLE][ACK] BW=" + String(bw, 0);
+        }
+        return "[BLE][ERR] BW " + String(state);
+    }
+
+    return "[BLE][ERR] Chiave sconosciuta: " + key;
+}
+
+String normalizeBleCommand(const String& command) {
+    String normalized = command;
+    normalized.trim();
+
+    if (normalized.startsWith("TX=")) {
+        normalized = normalized.substring(3);
+        normalized.trim();
+    }
+
+    if (normalized.startsWith("BLE=")) {
+        normalized = normalized.substring(4);
+        normalized.trim();
+    }
+
+    return normalized;
+}
+
 void setup() {
     Serial.begin(115200); 
+    setupBLE();
     // Init setup for PWM Servo - N°1 CH-0  
     setup4pwm();
 
@@ -208,7 +376,7 @@ void RX_Manager(uint32_t &lastDisplayUpdate){
 
         if (rxState == RADIOLIB_ERR_NONE) {
             rxCount++;
-            lastRxMsg = rxData;
+            updateDisplay(txCount, currentRadioFreq, "PONG SENT", lastRxMsg.c_str());
             radioStatus = "RX " + String((int)radio.getRSSI()) + "dBm";
 
             Serial.printf("[Radio] Ricevuto: %s | RSSI: %.2f | SNR: %.2f\n", 
@@ -218,7 +386,7 @@ void RX_Manager(uint32_t &lastDisplayUpdate){
             rxMsgParserAndResponse(rxData);
 
             // AGGIORNAMENTO IMMEDIATO del display
-            updateDisplay(txCount, String(FREQ_RTX), radioStatus, lastRxMsg.c_str());
+            updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
             lastDisplayUpdate = millis(); 
         } 
         else if (rxState == RADIOLIB_ERR_CRC_MISMATCH) {
@@ -240,7 +408,7 @@ void TX_Manager(uint32_t lastTx){
         lastTx = millis();
         
         radioStatus = "TX...";
-        updateDisplay(txCount, String(FREQ_RTX), radioStatus, lastRxMsg.c_str()); // Mostra l'ultimo messaggio RX anche durante TX
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str()); // Mostra l'ultimo messaggio RX anche durante TX
         
         // Pausa di sicurezza: lascia che l'I2C finisca prima che la radio assorba corrente
         delay(50); 
@@ -257,18 +425,18 @@ void TX_Manager(uint32_t lastTx){
             Serial.printf("[Radio] Errore trasmissione: %d\n", txState);
         }
 
-        updateDisplay(txCount, String(FREQ_RTX), radioStatus, lastRxMsg.c_str()); // Mostra l'ultimo messaggio RX anche dopo TX
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str()); // Mostra l'ultimo messaggio RX anche dopo TX
         
         // Torna in modalità ricezione dopo la trasmissione
         radio.startReceive();
     }
 }
 
-void updateDataMonitor(uint32_t lastDisplayUpdate){
+void updateDataMonitor(uint32_t &lastDisplayUpdate){
     // 3. Aggiornamento periodico display (ogni secondo)
     if (millis() - lastDisplayUpdate >= 1000) {
         lastDisplayUpdate = millis();
-        updateDisplay(txCount, String(FREQ_RTX), radioStatus, lastRxMsg.c_str());
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
     }
 }
 
