@@ -50,6 +50,8 @@ String bleOutgoingMsg = "";
 
 String handleBleCommand(const String& command);
 String normalizeBleCommand(const String& command);
+String processRemoteCommand(const String& command);
+void setServoFromInput(long servoValue);
 
 // Variabili di stato
 uint32_t txCount = 0;
@@ -68,8 +70,22 @@ uint32_t isPwmResponding = 1;
 #define SERVOMIN  150 
 #define SERVOMAX  600
 
-// Variabile per tracciare la posizione corrente del servo
+// Channel mapping for remote control outputs
+constexpr uint8_t CH_THROTTLE = 0;
+constexpr uint8_t CH_ROLL = 1;
+constexpr uint8_t CH_PITCH = 2;
+constexpr uint8_t CH_YAW = 3;
+
+// Variabile per tracciare la posizione corrente del servo (canale throttle)
 uint16_t currentServoPos = (SERVOMIN + SERVOMAX) / 2;
+
+// Stato per il controllo remoto
+bool armed = false;
+int throttleValue = 128; // 0-255 range, default center
+int rollValue = 128;
+int pitchValue = 128;
+int yawValue = 128;
+
 
 // Callback per ricezione dati da iOS via BLE
 class MyCallbacks: public BLECharacteristicCallbacks {
@@ -220,6 +236,20 @@ String handleBleCommand(const String& command) {
         return "[BLE][ACK] STATUS | RSSI=" + String(radio.getRSSI()) + " dBm";
     }
 
+    // Gestione comandi testuali di controllo remoto (singole parole)
+    if (trimmed == "ARM" || trimmed == "DISARM" || trimmed == "HOVER" || trimmed == "EMERGENCY_STOP" ||
+        trimmed == "THROTTLE_UP" || trimmed == "THROTTLE_DOWN" ||
+        trimmed == "ROLL_LEFT" || trimmed == "ROLL_RIGHT" ||
+        trimmed == "PITCH_UP" || trimmed == "PITCH_DOWN" ||
+        trimmed == "YAW_LEFT" || trimmed == "YAW_RIGHT") {
+        String ack = processRemoteCommand(trimmed);
+        // Aggiorna display e stato locale
+        lastRxMsg = trimmed + " -> " + ack;
+        radioStatus = "BLE CMD";
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
+        return "[BLE][ACK] " + trimmed;
+    }
+
     int separator = trimmed.indexOf('=');
     if (separator <= 0) {
         return "[BLE][ERR] Comando non valido: " + trimmed;
@@ -310,6 +340,101 @@ void setup() {
 }
 
 // === GESTIONE SERVO BASATA SU MESSAGGIO RX ===
+
+// Applica un valore 0-255 al servo (mappato a SERVOMIN..SERVOMAX)
+void setServoFromInput(long servoValue) {
+    // default maps to throttle channel
+    setChannelFromInput(CH_THROTTLE, servoValue);
+}
+
+void setChannelFromInput(uint8_t channel, long value) {
+    if (!isWireStarted || !isPwmStarted || !isPwmResponding) return;
+    uint16_t pulse = map(value, 0, 255, SERVOMIN, SERVOMAX);
+    pulse = constrain(pulse, SERVOMIN, SERVOMAX);
+    pwm.setPWM(channel, 0, pulse);
+    Serial.printf("[Servo] CH%d set: %ld -> pulse %d\n", channel, value, pulse);
+    if (channel == CH_THROTTLE) currentServoPos = pulse;
+}
+
+// Esegui comandi di controllo remoto: aggiorna stati e attua effetti locali (servo/PWM)
+String processRemoteCommand(const String& command) {
+    String cmd = command;
+    cmd.trim();
+
+    if (cmd == "ARM") {
+        armed = true;
+        updateDisplay(txCount, currentRadioFreq, "ARMED", bleIncomingMsg.c_str());
+        return "[ACK] ARM";
+    }
+    if (cmd == "DISARM") {
+        armed = false;
+        updateDisplay(txCount, currentRadioFreq, "DISARMED", bleIncomingMsg.c_str());
+        return "[ACK] DISARM";
+    }
+    if (cmd == "HOVER") {
+        // Placeholder: implement hover behavior as needed
+        return "[ACK] HOVER";
+    }
+    if (cmd == "EMERGENCY_STOP") {
+        armed = false;
+        // Azzeriamo l'output PWM come misura di sicurezza
+        if (isWireStarted && isPwmStarted && isPwmResponding) {
+            pwm.setPWM(0, 0, SERVOMIN);
+        }
+        updateDisplay(txCount, currentRadioFreq, "EMERGENCY STOP", bleIncomingMsg.c_str());
+        return "[ACK] EMERGENCY_STOP";
+    }
+
+    if (cmd == "THROTTLE_UP") {
+        throttleValue = min(255, throttleValue + 10);
+        setChannelFromInput(CH_THROTTLE, throttleValue);
+        return "[ACK] THROTTLE_UP";
+    }
+    if (cmd == "THROTTLE_DOWN") {
+        throttleValue = max(0, throttleValue - 10);
+        setChannelFromInput(CH_THROTTLE, throttleValue);
+        return "[ACK] THROTTLE_DOWN";
+    }
+
+    // Roll control: left decreases, right increases
+    if (cmd == "ROLL_LEFT") {
+        rollValue = max(0, rollValue - 10);
+        setChannelFromInput(CH_ROLL, rollValue);
+        return "[ACK] ROLL_LEFT";
+    }
+    if (cmd == "ROLL_RIGHT") {
+        rollValue = min(255, rollValue + 10);
+        setChannelFromInput(CH_ROLL, rollValue);
+        return "[ACK] ROLL_RIGHT";
+    }
+
+    // Pitch control
+    if (cmd == "PITCH_UP") {
+        pitchValue = min(255, pitchValue + 10);
+        setChannelFromInput(CH_PITCH, pitchValue);
+        return "[ACK] PITCH_UP";
+    }
+    if (cmd == "PITCH_DOWN") {
+        pitchValue = max(0, pitchValue - 10);
+        setChannelFromInput(CH_PITCH, pitchValue);
+        return "[ACK] PITCH_DOWN";
+    }
+
+    // Yaw control
+    if (cmd == "YAW_LEFT") {
+        yawValue = max(0, yawValue - 10);
+        setChannelFromInput(CH_YAW, yawValue);
+        return "[ACK] YAW_LEFT";
+    }
+    if (cmd == "YAW_RIGHT") {
+        yawValue = min(255, yawValue + 10);
+        setChannelFromInput(CH_YAW, yawValue);
+        return "[ACK] YAW_RIGHT";
+    }
+
+    return "[ACK] UNKNOWN";
+}
+
 void rxMsgParserAndResponse(String rxData) {
     Serial.println("[Radio] from RX: " + rxData );
 
@@ -328,6 +453,19 @@ void rxMsgParserAndResponse(String rxData) {
         txCount++;
         String statusMsg = "[ACK] STATUS: OK | RSSI: " + String(radio.getRSSI()) + "dBm";
         radio.transmit(statusMsg);
+        return;
+    }
+
+    // Remote control textual commands (ARM/DISARM/HOVER/EMERGENCY/THROTTLE etc)
+    if (rxData == "ARM" || rxData == "DISARM" || rxData == "HOVER" || rxData == "EMERGENCY_STOP" ||
+        rxData == "THROTTLE_UP" || rxData == "THROTTLE_DOWN" ||
+        rxData == "ROLL_LEFT" || rxData == "ROLL_RIGHT" ||
+        rxData == "PITCH_UP" || rxData == "PITCH_DOWN" ||
+        rxData == "YAW_LEFT" || rxData == "YAW_RIGHT") {
+        String ack = processRemoteCommand(rxData);
+        txCount++;
+        radio.transmit(ack);
+        Serial.println("[Radio] Remote cmd processed: " + rxData + " -> " + ack);
         return;
     }
 
