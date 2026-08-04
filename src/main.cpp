@@ -52,6 +52,7 @@ String handleBleCommand(const String& command);
 String normalizeBleCommand(const String& command);
 String processRemoteCommand(const String& command);
 void setServoFromInput(long servoValue);
+void setChannelFromInput(uint8_t channel, long value);
 
 // Variabili di stato
 uint32_t txCount = 0;
@@ -81,7 +82,7 @@ uint16_t currentServoPos = (SERVOMIN + SERVOMAX) / 2;
 
 // Stato per il controllo remoto
 bool armed = false;
-int throttleValue = 128; // 0-255 range, default center
+int throttleValue = 0; // 0-255 range, default start 0
 int rollValue = 128;
 int pitchValue = 128;
 int yawValue = 128;
