@@ -51,6 +51,10 @@ String bleOutgoingMsg = "";
 String handleBleCommand(const String& command);
 String normalizeBleCommand(const String& command);
 String processRemoteCommand(const String& command);
+// Forward declaration for shared key=value handler used by BLE and LoRa code
+String processKeyValueCommand(const String& keyIn, const String& valueIn, const String& via);
+// Forward declaration for gradual channel movement
+void moveChannelGradual(uint8_t channel, long value, int stepDelayMs = 20, int stepSize = 5);
 void setServoFromInput(long servoValue);
 void setChannelFromInput(uint8_t channel, long value);
 
@@ -77,8 +81,8 @@ constexpr uint8_t CH_ROLL = 1;
 constexpr uint8_t CH_PITCH = 2;
 constexpr uint8_t CH_YAW = 3;
 
-// Variabile per tracciare la posizione corrente del servo (canale throttle)
-uint16_t currentServoPos = (SERVOMIN + SERVOMAX) / 2;
+// Variabile per tracciare la posizione corrente dei servo per canale (in pulse)
+uint16_t currentChannelPulse[4] = { (SERVOMIN + SERVOMAX) / 2, (SERVOMIN + SERVOMAX) / 2, (SERVOMIN + SERVOMAX) / 2, (SERVOMIN + SERVOMAX) / 2 };
 
 // Stato per il controllo remoto
 bool armed = false;
@@ -260,6 +264,16 @@ String handleBleCommand(const String& command) {
     String value = trimmed.substring(separator + 1);
     key.trim();
     value.trim();
+    // Delegate key=value handling to a shared function so LoRa and BLE use the same logic
+    return processKeyValueCommand(key, value, /*via=*/"BLE");
+}
+
+// Shared handler for key=value control commands. 'via' used for logging/context ("BLE" or "LORA").
+String processKeyValueCommand(const String& keyIn, const String& valueIn, const String& via) {
+    String key = keyIn;
+    String value = valueIn;
+    key.trim();
+    value.trim();
 
     if (key == "FREQ") {
         float freq = value.toFloat();
@@ -269,11 +283,11 @@ String handleBleCommand(const String& command) {
             int state = radio.setFrequency(freq);
             if (state == RADIOLIB_ERR_NONE) {
                 currentRadioFreq = String(freq, 3);
-                updateDisplay(txCount, currentRadioFreq, "BLE FREQ OK", bleIncomingMsg.c_str());
+                updateDisplay(txCount, currentRadioFreq, via + " FREQ OK", bleIncomingMsg.c_str());
                 radio.startReceive();
-                return "[BLE][ACK] FREQ=" + String(freq, 3);
+                return "[" + via + "][ACK] FREQ=" + String(freq, 3);
             }
-            return "[BLE][ERR] FREQ " + String(state);
+            return "[" + via + "][ERR] FREQ " + String(state);
         }
     }
 
@@ -281,30 +295,39 @@ String handleBleCommand(const String& command) {
         int power = value.toInt();
         int state = radio.setOutputPower(power);
         if (state == RADIOLIB_ERR_NONE) {
-            return "[BLE][ACK] POWER=" + String(power);
+            return "[" + via + "][ACK] POWER=" + String(power);
         }
-        return "[BLE][ERR] POWER " + String(state);
+        return "[" + via + "][ERR] POWER " + String(state);
+    }
+
+    if (key == "ROLL") {
+        long r = value.toInt();
+        r = constrain(r, 0L, 255L);
+        rollValue = (int)r;
+        moveChannelGradual(CH_ROLL, rollValue);
+        updateDisplay(txCount, currentRadioFreq, via + " ROLL", lastRxMsg.c_str());
+        return "[" + via + "][ACK] ROLL=" + String(rollValue);
     }
 
     if (key == "SF") {
         int sf = value.toInt();
         int state = radio.setSpreadingFactor(sf);
         if (state == RADIOLIB_ERR_NONE) {
-            return "[BLE][ACK] SF=" + String(sf);
+            return "[" + via + "][ACK] SF=" + String(sf);
         }
-        return "[BLE][ERR] SF " + String(state);
+        return "[" + via + "][ERR] SF " + String(state);
     }
 
     if (key == "BW") {
         float bw = value.toFloat();
         int state = radio.setBandwidth(bw);
         if (state == RADIOLIB_ERR_NONE) {
-            return "[BLE][ACK] BW=" + String(bw, 0);
+            return "[" + via + "][ACK] BW=" + String(bw, 0);
         }
-        return "[BLE][ERR] BW " + String(state);
+        return "[" + via + "][ERR] BW " + String(state);
     }
 
-    return "[BLE][ERR] Chiave sconosciuta: " + key;
+    return "[" + via + "][ERR] Chiave sconosciuta: " + key;
 }
 
 String normalizeBleCommand(const String& command) {
@@ -348,13 +371,35 @@ void setServoFromInput(long servoValue) {
     setChannelFromInput(CH_THROTTLE, servoValue);
 }
 
+// Set channel immediately to mapped pulse value and update currentChannelPulse
 void setChannelFromInput(uint8_t channel, long value) {
     if (!isWireStarted || !isPwmStarted || !isPwmResponding) return;
     uint16_t pulse = map(value, 0, 255, SERVOMIN, SERVOMAX);
     pulse = constrain(pulse, SERVOMIN, SERVOMAX);
     pwm.setPWM(channel, 0, pulse);
+    currentChannelPulse[channel] = pulse;
     Serial.printf("[Servo] CH%d set: %ld -> pulse %d\n", channel, value, pulse);
-    if (channel == CH_THROTTLE) currentServoPos = pulse;
+}
+
+// Gradually move a PWM channel from its current pulse to the target mapped from a 0-255 value
+void moveChannelGradual(uint8_t channel, long value, int stepDelayMs, int stepSize) {
+    if (!isWireStarted || !isPwmStarted || !isPwmResponding) return;
+    uint16_t targetPulse = map(value, 0, 255, SERVOMIN, SERVOMAX);
+    targetPulse = constrain(targetPulse, SERVOMIN, SERVOMAX);
+
+    uint16_t &currentPulse = currentChannelPulse[channel];
+    if (currentPulse == targetPulse) return;
+
+    int step = (targetPulse > currentPulse) ? stepSize : -stepSize;
+    while (currentPulse != targetPulse) {
+        int next = (int)currentPulse + step;
+        // avoid overshoot
+        if ((step > 0 && next > targetPulse) || (step < 0 && next < (int)targetPulse)) next = targetPulse;
+        currentPulse = (uint16_t)next;
+        pwm.setPWM(channel, 0, currentPulse);
+        delay(stepDelayMs);
+    }
+    Serial.printf("[Servo] CH%d moved to pulse %d (value %ld)\n", channel, currentPulse, value);
 }
 
 // Esegui comandi di controllo remoto: aggiorna stati e attua effetti locali (servo/PWM)
@@ -400,12 +445,12 @@ String processRemoteCommand(const String& command) {
     // Roll control: left decreases, right increases
     if (cmd == "ROLL_LEFT") {
         rollValue = max(0, rollValue - 10);
-        setChannelFromInput(CH_ROLL, rollValue);
+        moveChannelGradual(CH_ROLL, rollValue);
         return "[ACK] ROLL_LEFT";
     }
     if (cmd == "ROLL_RIGHT") {
         rollValue = min(255, rollValue + 10);
-        setChannelFromInput(CH_ROLL, rollValue);
+        moveChannelGradual(CH_ROLL, rollValue);
         return "[ACK] ROLL_RIGHT";
     }
 
@@ -472,28 +517,26 @@ void rxMsgParserAndResponse(String rxData) {
 
     // Gestione comandi numerici per il Servo
     // Prova a parsare il messaggio come numero (0-255 o 0-1023)
+    // If message contains '=' treat it as key=value and delegate to shared handler
+    int sep = rxData.indexOf('=');
+    if (sep > 0) {
+        String key = rxData.substring(0, sep);
+        String value = rxData.substring(sep + 1);
+        key.trim(); value.trim();
+        String resp = processKeyValueCommand(key, value, /*via=*/"LORA");
+        txCount++;
+        radio.transmit(resp);
+        Serial.println("[Radio] Key=Value processed -> " + resp);
+        return;
+    }
+
     if(isWireStarted && isPwmStarted && isPwmResponding){
         long servoValue = rxData.toInt();
         if ((servoValue != 0 || rxData == "0")) {
-            // Mappa il valore ricevuto all'intervallo del servo
-            // Assumiamo input 0-255 (tipico da sensori)
-            uint16_t targetPulse = map(servoValue, 0, 255, SERVOMIN, SERVOMAX);
-            // Limita ai valori min/max del servo
-            targetPulse = constrain(targetPulse, SERVOMIN, SERVOMAX);
-            
-            // Spostamento graduale dalla posizione corrente alla target
-            int step = (targetPulse > currentServoPos) ? 5 : -5;
-            while (currentServoPos != targetPulse) {
-                currentServoPos += step;
-                // Verifica che non si superi il target
-                if ((step > 0 && currentServoPos > targetPulse) ||
-                    (step < 0 && currentServoPos < targetPulse)) {
-                    currentServoPos = targetPulse;
-                }
-                pwm.setPWM(0, 0, currentServoPos);
-                delay(20); // Velocità dello spostamento (20ms per step)
-            }
-            Serial.printf("[Servo] Posizione: %d (pulselen: %d)\n", servoValue, currentServoPos);
+            // Move throttle channel smoothly to requested value
+            moveChannelGradual(CH_THROTTLE, servoValue);
+
+            Serial.printf("[Servo] Posizione: %d (pulselen: %d)\n", servoValue, currentChannelPulse[CH_THROTTLE]);
 
             // === INVIO FEEDBACK AL GATEWAY ===
             txCount++; // Incrementiamo il contatore trasmissioni dell'ESP
