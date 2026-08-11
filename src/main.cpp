@@ -115,6 +115,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
+// Callback per gestione connessione/disconnessione iOS
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
         deviceConnected = true;
@@ -131,6 +132,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
     }
 };
 
+// Funzione per inizializzare il bus I2C e la scheda PWM
 void setup4pwm() {
     Serial.println("--- RESET BUS I2C ---"); 
     // 1. Chiudiamo eventuali istanze appese
@@ -147,6 +149,7 @@ void setup4pwm() {
 
     // 3. Test di presenza del chip PCA9685
     pwm.begin();
+    // Impostiamo la frequenza a 50Hz per i servo standard
     pwm.setPWMFreq(50);
     // Prova l'inizializzazione della PWM
     if (!pwm.begin()) {
@@ -168,6 +171,7 @@ void setup4pwm() {
     }
 }
 
+// Funzione per inizializzare la Radio LoRa SX1262
 void setup4LoRa() {  
 
     // Inizializzazione Radio (Parametri Meshtastic LongFast)
@@ -182,6 +186,7 @@ void setup4LoRa() {
         PREAMBLE   // Preamble Length
     );
 
+    // Impostiamo il Sync Word completo con i bit di controllo
     if (state == RADIOLIB_ERR_NONE) {
         state = radio.setSyncWord(SYNC_WORD, CTRL_BITS); 
         if (state == RADIOLIB_ERR_NONE) {
@@ -196,6 +201,7 @@ void setup4LoRa() {
         }
     } 
 
+    // Gestione errori 
     if (state != RADIOLIB_ERR_NONE) {
         radioStatus = "Radio ERR: " + String(state);
         Serial.printf("ERRORE Radio: %d\n", state);
@@ -205,11 +211,15 @@ void setup4LoRa() {
     pinMode(RADIO_DIO1, INPUT);
 }
 
+// Funzione per inizializzare il BLE e avviare l'advertising
 void setupBLE() {
+    // Inizializzazione BLE
     BLEDevice::init("LoRa_Web_Bridge");
+    // Creiamo il server BLE e impostiamo i callback per connessione/disconnessione
     pServer = BLEDevice::createServer();
+    // Impostiamo i callback per connessione/disconnessione
     pServer->setCallbacks(new MyServerCallbacks());
-
+    // Creiamo il servizio BLE con il nostro UUID
     BLEService *pService = pServer->createService(SERVICE_UUID);
     pCharacteristicTX = pService->createCharacteristic(
                         CHARACTERISTIC_UUID_TX,
@@ -217,18 +227,23 @@ void setupBLE() {
                         BLECharacteristic::PROPERTY_WRITE |
                         BLECharacteristic::PROPERTY_NOTIFY
                       );
-
+    // Impostiamo i callback per la caratteristica TX
     pCharacteristicTX->setCallbacks(new MyCallbacks());
+    // Aggiungiamo il descriptor BLE2902 per abilitare le notifiche
     pCharacteristicTX->addDescriptor(new BLE2902());
+    // Avviamo il servizio BLE
     pService->start();
-
+    // Avviamo l'advertising BLE
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+    // Aggiungiamo il nostro UUID di servizio all'advertising
     pAdvertising->addServiceUUID(SERVICE_UUID);
+    // Impostiamo l'advertising per includere il nome del dispositivo e il servizio
     pAdvertising->setScanResponse(true);
     BLEDevice::startAdvertising();
     Serial.println("[BLE] In attesa di connessione iOS...");
 }
 
+// Funzione per gestire i comandi ricevuti via BLE
 String handleBleCommand(const String& command) {
     String trimmed = normalizeBleCommand(command);
     trimmed.trim();
@@ -259,8 +274,9 @@ String handleBleCommand(const String& command) {
     if (separator <= 0) {
         return "[BLE][ERR] Comando non valido: " + trimmed;
     }
-
+    // Split key=value
     String key = trimmed.substring(0, separator);
+    // Split value after '='
     String value = trimmed.substring(separator + 1);
     key.trim();
     value.trim();
@@ -330,6 +346,7 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
     return "[" + via + "][ERR] Chiave sconosciuta: " + key;
 }
 
+// Normalize BLE command by removing optional prefixes like "TX=" or "BLE=" and trimming whitespace
 String normalizeBleCommand(const String& command) {
     String normalized = command;
     normalized.trim();
@@ -347,16 +364,17 @@ String normalizeBleCommand(const String& command) {
     return normalized;
 }
 
+// Funzione di setup principale
 void setup() {
+    // Inizializzazione Serial per debug
     Serial.begin(115200); 
+    // Attendere che la seriale sia pronta
     setupBLE();
     // Init setup for PWM Servo - N°1 CH-0  
     setup4pwm();
-
     // Init LoRa
     setup4LoRa();
-
-    // Inizializzazione Display tramite il nuovo manager+
+    // Aggiorna display iniziale
     Serial.println();
     Serial.println();
     setupDisplay();
@@ -550,6 +568,7 @@ void rxMsgParserAndResponse(String rxData) {
     }
 }
 
+// === GESTIONE LOOP PRINCIPALE ===
 void RX_Manager(uint32_t &lastDisplayUpdate){
     // 1. Gestione Ricezione (RX) - Interroga la radio solo se il pin DIO1 è alto
     if (digitalRead(RADIO_DIO1) == HIGH) {
@@ -584,13 +603,15 @@ void RX_Manager(uint32_t &lastDisplayUpdate){
     }
 }
 
+// Gestione trasmissione periodica (ogni 5 secondi)
 void TX_Manager(uint32_t lastTx){
     // 2. Gestione Radio TX (ogni 5 secondi)
     if (millis() - lastTx >= 5000) {
         lastTx = millis();
         
         radioStatus = "TX...";
-        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str()); // Mostra l'ultimo messaggio RX anche durante TX
+        // Mostra l'ultimo messaggio RX anche durante TX
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
         
         // Pausa di sicurezza: lascia che l'I2C finisca prima che la radio assorba corrente
         delay(50); 
@@ -607,13 +628,15 @@ void TX_Manager(uint32_t lastTx){
             Serial.printf("[Radio] Errore trasmissione: %d\n", txState);
         }
 
-        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str()); // Mostra l'ultimo messaggio RX anche dopo TX
+        // Mostra l'ultimo messaggio RX anche dopo TX
+        updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
         
         // Torna in modalità ricezione dopo la trasmissione
         radio.startReceive();
     }
 }
 
+// Aggiornamento periodico del display (ogni secondo)
 void updateDataMonitor(uint32_t &lastDisplayUpdate){
     // 3. Aggiornamento periodico display (ogni secondo)
     if (millis() - lastDisplayUpdate >= 1000) {
@@ -622,12 +645,15 @@ void updateDataMonitor(uint32_t &lastDisplayUpdate){
     }
 }
 
+// === LOOP PRINCIPALE ===
 void loop() {
     static uint32_t lastDisplayUpdate = 0;
     static uint32_t lastTx = 0;
-    
+    // Gestione Ricezione (RX) - Interroga la radio solo se il pin DIO1 è alto
     RX_Manager(lastDisplayUpdate);
     //TX_Manager(lastTx);
+
+    // Aggiornamento periodico del display (ogni secondo)
     updateDataMonitor(lastDisplayUpdate);
     
 }
