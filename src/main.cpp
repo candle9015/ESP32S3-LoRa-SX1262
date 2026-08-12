@@ -376,7 +376,8 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
             p = constrain(p, 0L, 255L);
             rollValue = (int)r;
             pitchValue = (int)p;
-            moveChannelsGradualBatch(CH_ROLL, rollValue, CH_PITCH, pitchValue, 20, 5);
+            setChannelFromInput(CH_ROLL, rollValue);
+            setChannelFromInput(CH_PITCH, pitchValue);
             updateDisplay(txCount, currentRadioFreq, via + " AXIS", lastRxMsg.c_str());
             return "[" + via + "][ACK] AXIS=" + String(rollValue) + "," + String(pitchValue);
         }
@@ -387,7 +388,7 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
         long r = value.toInt();
         r = constrain(r, 0L, 255L);
         rollValue = (int)r;
-        moveChannelGradual(CH_ROLL, rollValue);
+        setChannelFromInput(CH_ROLL, rollValue);
         updateDisplay(txCount, currentRadioFreq, via + " ROLL", lastRxMsg.c_str());
         return "[" + via + "][ACK] ROLL=" + String(rollValue);
     }
@@ -580,12 +581,12 @@ String processRemoteCommand(const String& command) {
     // Roll control: left decreases, right increases
     if (cmd == "ROLL_LEFT") {
         rollValue = max(0, rollValue - 10);
-        moveChannelGradual(CH_ROLL, rollValue);
+        setChannelFromInput(CH_ROLL, rollValue);
         return "[ACK] ROLL_LEFT";
     }
     if (cmd == "ROLL_RIGHT") {
         rollValue = min(255, rollValue + 10);
-        moveChannelGradual(CH_ROLL, rollValue);
+        setChannelFromInput(CH_ROLL, rollValue);
         return "[ACK] ROLL_RIGHT";
     }
 
