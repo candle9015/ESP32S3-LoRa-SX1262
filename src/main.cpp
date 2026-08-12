@@ -31,11 +31,16 @@ SX1262 radio = SX1262(mod);
 // Valori Radio RF - HF
 #define FREQ_RTX  869.525 
 #define BW  125.0
-#define SF  11
+//#define BW  250.0
+//#define SF  11
+#define SF  7
 #define CR  8
-#define SYNC_WORD  0x24
+//#define CR  5
 #define POWER  5
 #define PREAMBLE 32
+//#define PREAMBLE 8
+// Stesso sync word raw usato dal driver RP2040 custom: 0x24, 0xB4
+#define SYNC_WORD  0x24
 #define CTRL_BITS 0xB4
 
 // UUID per BLE (Generati casualmente)
@@ -57,6 +62,8 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
 void moveChannelGradual(uint8_t channel, long value, int stepDelayMs = 20, int stepSize = 5);
 void moveChannelsGradualBatch(uint8_t channelA, long valueA, uint8_t channelB, long valueB, int stepDelayMs = 20, int stepSize = 5);
 void setServoFromInput(long servoValue);
+void setChannelFast(uint8_t channel, long value);
+void setChannelsFastPair(uint8_t channelA, long valueA, uint8_t channelB, long valueB);
 void setChannelFromInput(uint8_t channel, long value);
 
 // Variabili di stato
@@ -326,6 +333,17 @@ String handleBleCommand(const String& command) {
     return processKeyValueCommand(key, value, /*via=*/"BLE");
 }
 
+bool isLiveControlKey(const String& key) {
+    return key == "THROTTLE" || key == "AXIS" || key == "ROLL" || key == "PITCH" || key == "YAW";
+}
+
+bool isLiveRemoteTextCommand(const String& cmd) {
+    return cmd == "THROTTLE_UP" || cmd == "THROTTLE_DOWN" ||
+           cmd == "ROLL_LEFT" || cmd == "ROLL_RIGHT" ||
+           cmd == "PITCH_UP" || cmd == "PITCH_DOWN" ||
+           cmd == "YAW_LEFT" || cmd == "YAW_RIGHT";
+}
+
 // Shared handler for key=value control commands. 'via' used for logging/context ("BLE" or "LORA").
 String processKeyValueCommand(const String& keyIn, const String& valueIn, const String& via) {
     String key = keyIn;
@@ -364,7 +382,7 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
         throttleValue = (int)t;
         setChannelFromInput(CH_THROTTLE, throttleValue);
         updateDisplay(txCount, currentRadioFreq, via + " THROTTLE", lastRxMsg.c_str());
-        return "[" + via + "][ACK] THROTTLE=" + String(throttleValue);
+        return "";
     }
 
     if (key == "AXIS") {
@@ -376,10 +394,9 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
             p = constrain(p, 0L, 255L);
             rollValue = (int)r;
             pitchValue = (int)p;
-            setChannelFromInput(CH_ROLL, rollValue);
-            setChannelFromInput(CH_PITCH, pitchValue);
+            setChannelsFastPair(CH_ROLL, rollValue, CH_PITCH, pitchValue);
             updateDisplay(txCount, currentRadioFreq, via + " AXIS", lastRxMsg.c_str());
-            return "[" + via + "][ACK] AXIS=" + String(rollValue) + "," + String(pitchValue);
+            return "";
         }
         return "[" + via + "][ERR] AXIS formato non valido";
     }
@@ -388,18 +405,27 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
         long r = value.toInt();
         r = constrain(r, 0L, 255L);
         rollValue = (int)r;
-        setChannelFromInput(CH_ROLL, rollValue);
+        setChannelFast(CH_ROLL, rollValue);
         updateDisplay(txCount, currentRadioFreq, via + " ROLL", lastRxMsg.c_str());
-        return "[" + via + "][ACK] ROLL=" + String(rollValue);
+        return "";
     }
 
     if (key == "PITCH") {
         long p = value.toInt();
         p = constrain(p, 0L, 255L);
         pitchValue = (int)p;
-        setChannelFromInput(CH_PITCH, pitchValue);
+        setChannelFast(CH_PITCH, pitchValue);
         updateDisplay(txCount, currentRadioFreq, via + " PITCH", lastRxMsg.c_str());
-        return "[" + via + "][ACK] PITCH=" + String(pitchValue);
+        return "";
+    }
+
+    if (key == "YAW") {
+        long y = value.toInt();
+        y = constrain(y, 0L, 255L);
+        yawValue = (int)y;
+        setChannelFast(CH_YAW, yawValue);
+        updateDisplay(txCount, currentRadioFreq, via + " YAW", lastRxMsg.c_str());
+        return "";
     }
 
     if (key == "SF") {
@@ -466,14 +492,23 @@ void setServoFromInput(long servoValue) {
     setChannelFromInput(CH_THROTTLE, servoValue);
 }
 
-// Set channel immediately to mapped pulse value and update currentChannelPulse
-void setChannelFromInput(uint8_t channel, long value) {
+// Direct fast setters for live-control commands: no delay loop, no per-step logging.
+void setChannelFast(uint8_t channel, long value) {
     if (!isWireStarted || !isPwmStarted || !isPwmResponding) return;
     uint16_t pulse = map(value, 0, 255, SERVOMIN, SERVOMAX);
     pulse = constrain(pulse, SERVOMIN, SERVOMAX);
     pwm.setPWM(channel, 0, pulse);
     currentChannelPulse[channel] = pulse;
-    Serial.printf("[Servo] CH%d set: %ld -> pulse %d\n", channel, value, pulse);
+}
+
+void setChannelsFastPair(uint8_t channelA, long valueA, uint8_t channelB, long valueB) {
+    setChannelFast(channelA, valueA);
+    setChannelFast(channelB, valueB);
+}
+
+// Set channel immediately to mapped pulse value and update currentChannelPulse
+void setChannelFromInput(uint8_t channel, long value) {
+    setChannelFast(channel, value);
 }
 
 // Gradually move a PWM channel from its current pulse to the target mapped from a 0-255 value
@@ -570,48 +605,48 @@ String processRemoteCommand(const String& command) {
     if (cmd == "THROTTLE_UP") {
         throttleValue = min(255, throttleValue + 10);
         setChannelFromInput(CH_THROTTLE, throttleValue);
-        return "[ACK] THROTTLE_UP";
+        return "";
     }
     if (cmd == "THROTTLE_DOWN") {
         throttleValue = max(0, throttleValue - 10);
         setChannelFromInput(CH_THROTTLE, throttleValue);
-        return "[ACK] THROTTLE_DOWN";
+        return "";
     }
 
     // Roll control: left decreases, right increases
     if (cmd == "ROLL_LEFT") {
         rollValue = max(0, rollValue - 10);
-        setChannelFromInput(CH_ROLL, rollValue);
-        return "[ACK] ROLL_LEFT";
+        setChannelFast(CH_ROLL, rollValue);
+        return "";
     }
     if (cmd == "ROLL_RIGHT") {
         rollValue = min(255, rollValue + 10);
-        setChannelFromInput(CH_ROLL, rollValue);
-        return "[ACK] ROLL_RIGHT";
+        setChannelFast(CH_ROLL, rollValue);
+        return "";
     }
 
     // Pitch control
     if (cmd == "PITCH_UP") {
         pitchValue = min(255, pitchValue + 10);
-        setChannelFromInput(CH_PITCH, pitchValue);
-        return "[ACK] PITCH_UP";
+        setChannelFast(CH_PITCH, pitchValue);
+        return "";
     }
     if (cmd == "PITCH_DOWN") {
         pitchValue = max(0, pitchValue - 10);
-        setChannelFromInput(CH_PITCH, pitchValue);
-        return "[ACK] PITCH_DOWN";
+        setChannelFast(CH_PITCH, pitchValue);
+        return "";
     }
 
     // Yaw control
     if (cmd == "YAW_LEFT") {
         yawValue = max(0, yawValue - 10);
-        setChannelFromInput(CH_YAW, yawValue);
-        return "[ACK] YAW_LEFT";
+        setChannelFast(CH_YAW, yawValue);
+        return "";
     }
     if (cmd == "YAW_RIGHT") {
         yawValue = min(255, yawValue + 10);
-        setChannelFromInput(CH_YAW, yawValue);
-        return "[ACK] YAW_RIGHT";
+        setChannelFast(CH_YAW, yawValue);
+        return "";
     }
 
     return "[ACK] UNKNOWN";
@@ -638,16 +673,21 @@ void rxMsgParserAndResponse(String rxData) {
         return;
     }
 
+    // Live control commands are applied locally without immediate echo to keep the link fast.
+    if (isLiveRemoteTextCommand(rxData)) {
+        processRemoteCommand(rxData);
+        Serial.println("[Radio] Live control applied without ack: " + rxData);
+        return;
+    }
+
     // Remote control textual commands (ARM/DISARM/HOVER/EMERGENCY/THROTTLE etc)
-    if (rxData == "ARM" || rxData == "DISARM" || rxData == "HOVER" || rxData == "EMERGENCY_STOP" ||
-        rxData == "THROTTLE_UP" || rxData == "THROTTLE_DOWN" ||
-        rxData == "ROLL_LEFT" || rxData == "ROLL_RIGHT" ||
-        rxData == "PITCH_UP" || rxData == "PITCH_DOWN" ||
-        rxData == "YAW_LEFT" || rxData == "YAW_RIGHT") {
+    if (rxData == "ARM" || rxData == "DISARM" || rxData == "HOVER" || rxData == "EMERGENCY_STOP") {
         String ack = processRemoteCommand(rxData);
-        txCount++;
-        radio.transmit(ack);
-        Serial.println("[Radio] Remote cmd processed: " + rxData + " -> " + ack);
+        if (ack.length() > 0) {
+            txCount++;
+            radio.transmit(ack);
+            Serial.println("[Radio] Remote cmd processed: " + rxData + " -> " + ack);
+        }
         return;
     }
 
@@ -671,6 +711,10 @@ void rxMsgParserAndResponse(String rxData) {
                 String key = token.substring(0, sep);
                 String value = token.substring(sep + 1);
                 key.trim(); value.trim();
+                if (isLiveControlKey(key)) {
+                    processKeyValueCommand(key, value, /*via=*/"LORA");
+                    continue;
+                }
                 String resp = processKeyValueCommand(key, value, /*via=*/"LORA");
                 if (combinedResp.length() > 0) {
                     combinedResp += " | ";
@@ -690,6 +734,7 @@ void rxMsgParserAndResponse(String rxData) {
             Serial.println("[Radio] Multi-key processed -> " + combinedResp);
             return;
         }
+        return;
     }
 
     // Gestione comandi numerici per il Servo
@@ -700,29 +745,27 @@ void rxMsgParserAndResponse(String rxData) {
         String key = rxData.substring(0, sep);
         String value = rxData.substring(sep + 1);
         key.trim(); value.trim();
+        if (isLiveControlKey(key)) {
+            processKeyValueCommand(key, value, /*via=*/"LORA");
+            Serial.println("[Radio] Live key applied without ack: " + key + "=" + value);
+            return;
+        }
         String resp = processKeyValueCommand(key, value, /*via=*/"LORA");
-        txCount++;
-        radio.transmit(resp);
-        Serial.println("[Radio] Key=Value processed -> " + resp);
+        if (resp.length() > 0) {
+            txCount++;
+            radio.transmit(resp);
+            Serial.println("[Radio] Key=Value processed -> " + resp);
+        }
         return;
     }
 
     if(isWireStarted && isPwmStarted && isPwmResponding){
         long servoValue = rxData.toInt();
         if ((servoValue != 0 || rxData == "0")) {
-            // Move throttle channel smoothly to requested value
-            moveChannelGradual(CH_THROTTLE, servoValue);
+            setChannelFast(CH_THROTTLE, servoValue);
 
-            Serial.printf("[Servo] Posizione: %d (pulselen: %d)\n", servoValue, currentChannelPulse[CH_THROTTLE]);
-
-            // === INVIO FEEDBACK AL GATEWAY ===
-            txCount++; // Incrementiamo il contatore trasmissioni dell'ESP
-            String feedback = "[ACK] Servo impostato a " + String(servoValue);
-            
-            // Trasmettiamo la conferma
-            radio.transmit(feedback);
-            
-            Serial.println("[Radio] Feedback inviato al Gateway");
+            // Feedback non necessario per i comandi live: mantenere il link molto più rapido.
+            // Se vuoi un ack, aggiungerlo solo in modalità non-live e non ogni tick.
         }
     }
 }
