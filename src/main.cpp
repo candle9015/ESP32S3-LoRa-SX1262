@@ -316,6 +316,15 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
         return "[" + via + "][ERR] POWER " + String(state);
     }
 
+    if (key == "THROTTLE") {
+        long t = value.toInt();
+        t = constrain(t, 0L, 255L);
+        throttleValue = (int)t;
+        setChannelFromInput(CH_THROTTLE, throttleValue);
+        updateDisplay(txCount, currentRadioFreq, via + " THROTTLE", lastRxMsg.c_str());
+        return "[" + via + "][ACK] THROTTLE=" + String(throttleValue);
+    }
+
     if (key == "ROLL") {
         long r = value.toInt();
         r = constrain(r, 0L, 255L);
