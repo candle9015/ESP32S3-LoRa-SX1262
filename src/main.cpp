@@ -334,6 +334,15 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
         return "[" + via + "][ACK] ROLL=" + String(rollValue);
     }
 
+    if (key == "PITCH") {
+        long p = value.toInt();
+        p = constrain(p, 0L, 255L);
+        pitchValue = (int)p;
+        setChannelFromInput(CH_PITCH, pitchValue);
+        updateDisplay(txCount, currentRadioFreq, via + " PITCH", lastRxMsg.c_str());
+        return "[" + via + "][ACK] PITCH=" + String(pitchValue);
+    }
+
     if (key == "SF") {
         int sf = value.toInt();
         int state = radio.setSpreadingFactor(sf);
