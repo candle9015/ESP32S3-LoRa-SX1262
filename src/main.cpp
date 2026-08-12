@@ -53,8 +53,9 @@ String normalizeBleCommand(const String& command);
 String processRemoteCommand(const String& command);
 // Forward declaration for shared key=value handler used by BLE and LoRa code
 String processKeyValueCommand(const String& keyIn, const String& valueIn, const String& via);
-// Forward declaration for gradual channel movement
+// Forward declarations for gradual channel movement
 void moveChannelGradual(uint8_t channel, long value, int stepDelayMs = 20, int stepSize = 5);
+void moveChannelsGradualBatch(uint8_t channelA, long valueA, uint8_t channelB, long valueB, int stepDelayMs = 20, int stepSize = 5);
 void setServoFromInput(long servoValue);
 void setChannelFromInput(uint8_t channel, long value);
 
@@ -248,6 +249,47 @@ String handleBleCommand(const String& command) {
     String trimmed = normalizeBleCommand(command);
     trimmed.trim();
 
+    if (trimmed.indexOf('&') >= 0 || trimmed.indexOf(';') >= 0) {
+        String combinedAck = "";
+        int start = 0;
+        while (start < trimmed.length()) {
+            int end = trimmed.indexOf('&', start);
+            if (end < 0) {
+                end = trimmed.indexOf(';', start);
+            }
+            if (end < 0) {
+                end = trimmed.length();
+            }
+
+            String token = trimmed.substring(start, end);
+            token.trim();
+            if (token.length() > 0 && token.indexOf('=') > 0) {
+                int separator = token.indexOf('=');
+                String key = token.substring(0, separator);
+                String value = token.substring(separator + 1);
+                key.trim();
+                value.trim();
+                String reply = processKeyValueCommand(key, value, /*via=*/"BLE");
+                if (combinedAck.length() > 0) {
+                    combinedAck += " | ";
+                }
+                combinedAck += reply;
+            }
+
+            if (end >= trimmed.length()) {
+                break;
+            }
+            start = end + 1;
+        }
+
+        if (combinedAck.length() > 0) {
+            lastRxMsg = trimmed + " -> " + combinedAck;
+            radioStatus = "BLE CMD";
+            updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
+            return "[BLE][ACK] " + combinedAck;
+        }
+    }
+
     if (trimmed == "PING") {
         return "[BLE][ACK] PONG";
     }
@@ -323,6 +365,22 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
         setChannelFromInput(CH_THROTTLE, throttleValue);
         updateDisplay(txCount, currentRadioFreq, via + " THROTTLE", lastRxMsg.c_str());
         return "[" + via + "][ACK] THROTTLE=" + String(throttleValue);
+    }
+
+    if (key == "AXIS") {
+        int comma = value.indexOf(',');
+        if (comma > 0) {
+            long r = value.substring(0, comma).toInt();
+            long p = value.substring(comma + 1).toInt();
+            r = constrain(r, 0L, 255L);
+            p = constrain(p, 0L, 255L);
+            rollValue = (int)r;
+            pitchValue = (int)p;
+            moveChannelsGradualBatch(CH_ROLL, rollValue, CH_PITCH, pitchValue, 20, 5);
+            updateDisplay(txCount, currentRadioFreq, via + " AXIS", lastRxMsg.c_str());
+            return "[" + via + "][ACK] AXIS=" + String(rollValue) + "," + String(pitchValue);
+        }
+        return "[" + via + "][ERR] AXIS formato non valido";
     }
 
     if (key == "ROLL") {
@@ -415,6 +473,47 @@ void setChannelFromInput(uint8_t channel, long value) {
     pwm.setPWM(channel, 0, pulse);
     currentChannelPulse[channel] = pulse;
     Serial.printf("[Servo] CH%d set: %ld -> pulse %d\n", channel, value, pulse);
+}
+
+// Gradually move a PWM channel from its current pulse to the target mapped from a 0-255 value
+void moveChannelsGradualBatch(uint8_t channelA, long valueA, uint8_t channelB, long valueB, int stepDelayMs, int stepSize) {
+    if (!isWireStarted || !isPwmStarted || !isPwmResponding) return;
+
+    uint16_t targetPulseA = map(valueA, 0, 255, SERVOMIN, SERVOMAX);
+    uint16_t targetPulseB = map(valueB, 0, 255, SERVOMIN, SERVOMAX);
+    targetPulseA = constrain(targetPulseA, SERVOMIN, SERVOMAX);
+    targetPulseB = constrain(targetPulseB, SERVOMIN, SERVOMAX);
+
+    uint16_t &currentPulseA = currentChannelPulse[channelA];
+    uint16_t &currentPulseB = currentChannelPulse[channelB];
+
+    int stepA = (targetPulseA > currentPulseA) ? stepSize : ((targetPulseA < currentPulseA) ? -stepSize : 0);
+    int stepB = (targetPulseB > currentPulseB) ? stepSize : ((targetPulseB < currentPulseB) ? -stepSize : 0);
+
+    while (currentPulseA != targetPulseA || currentPulseB != targetPulseB) {
+        if (currentPulseA != targetPulseA) {
+            int nextA = (int)currentPulseA + stepA;
+            if ((stepA > 0 && nextA > targetPulseA) || (stepA < 0 && nextA < (int)targetPulseA)) {
+                nextA = targetPulseA;
+            }
+            currentPulseA = (uint16_t)nextA;
+        }
+
+        if (currentPulseB != targetPulseB) {
+            int nextB = (int)currentPulseB + stepB;
+            if ((stepB > 0 && nextB > targetPulseB) || (stepB < 0 && nextB < (int)targetPulseB)) {
+                nextB = targetPulseB;
+            }
+            currentPulseB = (uint16_t)nextB;
+        }
+
+        pwm.setPWM(channelA, 0, currentPulseA);
+        pwm.setPWM(channelB, 0, currentPulseB);
+        delay(stepDelayMs);
+    }
+
+    Serial.printf("[Servo] batch CH%d/CH%d moved to pulses %d/%d (values %ld/%ld)\n",
+                  channelA, channelB, currentPulseA, currentPulseB, valueA, valueB);
 }
 
 // Gradually move a PWM channel from its current pulse to the target mapped from a 0-255 value
@@ -549,6 +648,47 @@ void rxMsgParserAndResponse(String rxData) {
         radio.transmit(ack);
         Serial.println("[Radio] Remote cmd processed: " + rxData + " -> " + ack);
         return;
+    }
+
+    if (rxData.indexOf('&') >= 0 || rxData.indexOf(';') >= 0) {
+        String combined = rxData;
+        int start = 0;
+        String combinedResp = "";
+        while (start < combined.length()) {
+            int end = combined.indexOf('&', start);
+            if (end < 0) {
+                end = combined.indexOf(';', start);
+            }
+            if (end < 0) {
+                end = combined.length();
+            }
+
+            String token = combined.substring(start, end);
+            token.trim();
+            if (token.length() > 0 && token.indexOf('=') > 0) {
+                int sep = token.indexOf('=');
+                String key = token.substring(0, sep);
+                String value = token.substring(sep + 1);
+                key.trim(); value.trim();
+                String resp = processKeyValueCommand(key, value, /*via=*/"LORA");
+                if (combinedResp.length() > 0) {
+                    combinedResp += " | ";
+                }
+                combinedResp += resp;
+            }
+
+            if (end >= combined.length()) {
+                break;
+            }
+            start = end + 1;
+        }
+
+        if (combinedResp.length() > 0) {
+            txCount++;
+            radio.transmit(combinedResp);
+            Serial.println("[Radio] Multi-key processed -> " + combinedResp);
+            return;
+        }
     }
 
     // Gestione comandi numerici per il Servo
