@@ -46,9 +46,11 @@ SX1262 radio = SX1262(mod);
 // UUID per BLE (Generati casualmente)
 #define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID_TX "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define CHARACTERISTIC_UUID_RX "beb5483e-36e1-4688-b7f5-ea07361b26a9"
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristicTX = NULL;
+BLECharacteristic* pCharacteristicRX = NULL;
 bool deviceConnected = false;
 String bleIncomingMsg = "";
 String bleOutgoingMsg = "";
@@ -108,7 +110,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             bleIncomingMsg = String(value.c_str());
             Serial.print("[BLE] Ricevuto da iOS: ");
             Serial.println(bleIncomingMsg);
-            
+
             String ack = handleBleCommand(bleIncomingMsg);
             if (ack.length() > 0 && pCharacteristicTX != NULL) {
                 bleOutgoingMsg = ack;
@@ -229,14 +231,22 @@ void setupBLE() {
     pServer->setCallbacks(new MyServerCallbacks());
     // Creiamo il servizio BLE con il nostro UUID
     BLEService *pService = pServer->createService(SERVICE_UUID);
+
+    // Standard UART-like split GATT: RX is writable from the client, TX is notify-only.
+    pCharacteristicRX = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_RX,
+        BLECharacteristic::PROPERTY_WRITE |
+        BLECharacteristic::PROPERTY_WRITE_NR
+    );
+
     pCharacteristicTX = pService->createCharacteristic(
-                        CHARACTERISTIC_UUID_TX,
-                        BLECharacteristic::PROPERTY_READ |
-                        BLECharacteristic::PROPERTY_WRITE |
-                        BLECharacteristic::PROPERTY_NOTIFY
-                      );
-    // Impostiamo i callback per la caratteristica TX
-    pCharacteristicTX->setCallbacks(new MyCallbacks());
+        CHARACTERISTIC_UUID_TX,
+        BLECharacteristic::PROPERTY_READ |
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+
+    // Impostiamo i callback per la caratteristica RX (ricezione dati dal client)
+    pCharacteristicRX->setCallbacks(new MyCallbacks());
     // Aggiungiamo il descriptor BLE2902 per abilitare le notifiche
     pCharacteristicTX->addDescriptor(new BLE2902());
     // Avviamo il servizio BLE
