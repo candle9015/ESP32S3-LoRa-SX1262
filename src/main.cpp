@@ -67,6 +67,8 @@ void setServoFromInput(long servoValue);
 void setChannelFast(uint8_t channel, long value);
 void setChannelsFastPair(uint8_t channelA, long valueA, uint8_t channelB, long valueB);
 void setChannelFromInput(uint8_t channel, long value);
+// Forward declaration for default device setter
+void setDefaultDevice(long yaw, long roll, long pitch, long throttle);
 
 // Variabili di stato
 uint32_t txCount = 0;
@@ -487,6 +489,15 @@ void setup() {
     setup4pwm();
     // Init LoRa
     setup4LoRa();
+
+    // Imposta valori iniziali dei canali
+    yawValue = 128;
+    rollValue = 128;
+    pitchValue = 128;
+    throttleValue = 0;
+    setDefaultDevice(yawValue, rollValue, pitchValue, throttleValue);
+    
+
     // Aggiorna display iniziale
     Serial.println();
     Serial.println();
@@ -500,6 +511,18 @@ void setup() {
 void setServoFromInput(long servoValue) {
     // default maps to throttle channel
     setChannelFromInput(CH_THROTTLE, servoValue);
+}
+
+void setDefaultDevice(long yaw, long roll, long pitch, long throttle) {
+    yawValue = constrain(yaw, 0L, 255L);
+    rollValue = constrain(roll, 0L, 255L);
+    pitchValue = constrain(pitch, 0L, 255L);
+    throttleValue = constrain(throttle, 0L, 255L);
+
+    setChannelFast(CH_YAW, yawValue);
+    setChannelFast(CH_ROLL, rollValue);
+    setChannelFast(CH_PITCH, pitchValue);
+    setChannelFast(CH_THROTTLE, throttleValue);
 }
 
 // Direct fast setters for live-control commands: no delay loop, no per-step logging.
@@ -604,9 +627,14 @@ String processRemoteCommand(const String& command) {
     }
     if (cmd == "EMERGENCY_STOP") {
         armed = false;
+        yawValue = 128;
+        setDefaultDevice(yawValue, rollValue, pitchValue, throttleValue);
         // Azzeriamo l'output PWM come misura di sicurezza
         if (isWireStarted && isPwmStarted && isPwmResponding) {
             pwm.setPWM(0, 0, SERVOMIN);
+            pwm.setPWM(1, 0, SERVOMIN);
+            pwm.setPWM(2, 0, SERVOMIN);
+            pwm.setPWM(3, 0, SERVOMIN);
         }
         updateDisplay(txCount, currentRadioFreq, "EMERGENCY STOP", bleIncomingMsg.c_str());
         return "[ACK] EMERGENCY_STOP";
