@@ -3,6 +3,7 @@
 #include "lora_manager.h"
 #include "ble_manager.h"
 #include "pwm_manager.h"
+#include "imu_manager.h"
 
 #define VEXT_PIN 45
 
@@ -11,7 +12,9 @@ void setup() {
 
     setupBLE();
     setup4pwm();
+    setupDisplay();
     setup4LoRa();
+    initIMU();
 
     yawValue = 128;
     rollValue = 128;
@@ -21,7 +24,6 @@ void setup() {
 
     Serial.println();
     Serial.println();
-    setupDisplay();
 }
 
 void updateDataMonitor(uint32_t &lastDisplayUpdate) {
@@ -33,6 +35,7 @@ void updateDataMonitor(uint32_t &lastDisplayUpdate) {
 
 void loop() {
     static uint32_t lastDisplayUpdate = 0;
+    updateIMU();
     RX_Manager(lastDisplayUpdate);
     updateDataMonitor(lastDisplayUpdate);
 }
