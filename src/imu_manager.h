@@ -14,7 +14,7 @@ struct ImuTelemetry {
     bool valid;
 };
 
-void initIMU();
+void setupIMU();
 void updateIMU();
 void calibrateIMU(uint16_t samples = 200);
 bool isIMUReady();

@@ -3,7 +3,10 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 
-static TwoWire imuWire(1);
+// Usiamo direttamente l'istanza hardware Wire1 fornita dall'ESP32
+#define imuWire Wire1
+
+//static TwoWire imuWire(1);
 static Adafruit_MPU6050 mpu;
 static bool imuReady = false;
 static bool imuCalibrated = false;
@@ -20,27 +23,38 @@ static float gyroZOffset = 0.0f;
 static uint32_t lastImuMicros = 0;
 static uint32_t lastImuDebugMs = 0;
 
-void initIMU() {
-    Serial.println("[IMU] trying to initialize on SDA=42 / SCL=45");
+void setupIMU() {
+    Serial.println("[IMU] trying to initialize on SDA=42 / SCL=46");
 
-    imuWire.begin(42, 45, 100000);
-    delay(50);
+    // Ripuliamo il bus prima di inizializzarlo
+    imuWire.end();
+    delay(10);
+
+    // Inizializziamo il bus Wire1 nativo
+    bool ok = imuWire.begin(42, 46, 100000);
+    if (!ok) {
+        Serial.println("[IMU] Errore critico: Impossibile allocare il bus I2C hardware!");
+        imuReady = false;
+        return;
+    }
+    
+    // Piccolo ritardo per stabilizzare le linee elettriche
+    delay(50); 
 
     imuWire.beginTransmission(0x68);
     byte error = imuWire.endTransmission();
 
     if (error != 0) {
         Serial.printf("[IMU] MPU missing on I2C address 0x68 (error=%d). Hardware not detected.\n", error);
-        Serial.println("[IMU] MPU missing");
         imuReady = false;
         imuCalibrated = false;
         return;
     }
 
-    Serial.println("[IMU] MPU detected");
+    Serial.println("[IMU] MPU detected!");
 
     if (!mpu.begin(0x68, &imuWire)) {
-        Serial.println("[IMU] initialization failed after detection. Continuing without IMU.");
+        Serial.println("[IMU] initialization failed after detection.");
         imuReady = false;
         imuCalibrated = false;
         return;
@@ -53,7 +67,8 @@ void initIMU() {
     imuReady = true;
     lastImuMicros = micros();
     calibrateIMU(200);
-    Serial.println("[IMU] initialized");
+    Serial.println("[IMU] initialized successfully");
+   
 }
 
 void calibrateIMU(uint16_t samples) {

@@ -14,7 +14,7 @@ void setup() {
     setup4pwm();
     setupDisplay();
     setup4LoRa();
-    initIMU();
+    setupIMU();
 
     yawValue = 128;
     rollValue = 128;
