@@ -37,5 +37,6 @@ void loop() {
     static uint32_t lastDisplayUpdate = 0;
     updateIMU();
     RX_Manager(lastDisplayUpdate);
+    updateBleTelemetryLoop();
     updateDataMonitor(lastDisplayUpdate);
 }

@@ -137,11 +137,13 @@ void updateIMU() {
 
     yawRateDegPerSec = gz;
 
+    /*
     if (millis() - lastImuDebugMs >= 5000) {
         lastImuDebugMs = millis();
         Serial.printf("[IMU] roll=%.1f pitch=%.1f yawRate=%.1f temp=%.1f\n",
                       rollDeg, pitchDeg, yawRateDegPerSec, tempC);
     }
+    */
 }
 
 bool isIMUReady() {

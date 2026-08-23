@@ -21,5 +21,7 @@ extern String bleOutgoingMsg;
 void setupBLE();
 String handleBleCommand(const String& command);
 String normalizeBleCommand(const String& command);
+void broadcastBleTelemetry();
+void updateBleTelemetryLoop();
 
 #endif

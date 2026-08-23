@@ -10,6 +10,7 @@ BLECharacteristic* pCharacteristicRX = NULL;
 bool deviceConnected = false;
 String bleIncomingMsg = "";
 String bleOutgoingMsg = "";
+static uint32_t lastTelemetryBroadcastMs = 0;
 
 class MyCallbacks: public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
@@ -39,6 +40,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
         radioStatus = "BLE CONN";
         updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
         Serial.println("[BLE] iPhone connesso!");
+        broadcastBleTelemetry();
     };
 
     void onDisconnect(BLEServer* pServer) override {
@@ -189,4 +191,31 @@ String normalizeBleCommand(const String& command) {
     }
 
     return normalized;
+}
+
+void broadcastBleTelemetry() {
+    if (!deviceConnected || pCharacteristicTX == NULL) {
+        return;
+    }
+
+    String payload = buildImuTelemetryPayload("STATUS | RSSI=" + String(radio.getRSSI()) + " dBm");
+    payload.trim();
+    if (payload.length() == 0) {
+        return;
+    }
+
+    pCharacteristicTX->setValue(payload.c_str());
+    pCharacteristicTX->notify();
+    lastTelemetryBroadcastMs = millis();
+    // Serial.printf("[BLE] Telemetry broadcast: %s\n", payload.c_str());
+}
+
+void updateBleTelemetryLoop() {
+    if (!deviceConnected || pCharacteristicTX == NULL) {
+        return;
+    }
+
+    if (millis() - lastTelemetryBroadcastMs >= 2000) {
+        broadcastBleTelemetry();
+    }
 }
