@@ -98,7 +98,6 @@ bool parseControlFrame(const String& frame,
         return false;
     }
 
-    uint8_t offset = 0;
     String payload = frame;
     int start = payload.indexOf('|');
     if (start < 0) {
@@ -111,11 +110,11 @@ bool parseControlFrame(const String& frame,
     }
 
     payload = payload.substring(start + 1);
-    String parts[8];
-    for (int i = 0; i < 8; ++i) {
+    String parts[7];
+    for (int i = 0; i < 7; ++i) {
         int end = payload.indexOf('|');
         if (end < 0) {
-            if (i == 7) {
+            if (i == 6) {
                 parts[i] = payload;
             } else {
                 return false;
@@ -126,9 +125,9 @@ bool parseControlFrame(const String& frame,
         }
     }
 
-    if (parts[0].length() == 0 || parts[1].length() == 0 || parts[2].length() == 0 || 
+    if (parts[0].length() == 0 || parts[1].length() == 0 || parts[2].length() == 0 ||
         parts[3].length() == 0 || parts[4].length() == 0 || parts[5].length() == 0 ||
-        parts[6].length() == 0 || parts[7].length() == 0) {
+        parts[6].length() == 0) {
         return false;
     }
 
@@ -139,7 +138,9 @@ bool parseControlFrame(const String& frame,
     pitch = static_cast<uint8_t>(parts[4].toInt());
     yaw = static_cast<uint8_t>(parts[5].toInt());
     crc = static_cast<uint8_t>(parts[6].toInt());
-    return true;
+
+    uint8_t expectedCrc = crc8FromValues(new uint8_t[6]{ seq, flags, throttle, roll, pitch, yaw }, 6);
+    return crc == expectedCrc;
 }
 
 bool parseTelemetryFrame(const String& frame,

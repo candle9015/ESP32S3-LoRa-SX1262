@@ -105,6 +105,30 @@ String handleBleCommand(const String& command) {
     String trimmed = normalizeBleCommand(command);
     trimmed.trim();
 
+    if (trimmed.startsWith("C|")) {
+        uint8_t seq = 0;
+        uint8_t flags = 0;
+        uint8_t throttle = 0;
+        uint8_t roll = 0;
+        uint8_t pitch = 0;
+        uint8_t yaw = 0;
+        uint8_t crc = 0;
+
+        if (compact_protocol::parseControlFrame(trimmed, seq, flags, throttle, roll, pitch, yaw, crc)) {
+            throttleValue = throttle;
+            rollValue = roll;
+            pitchValue = pitch;
+            yawValue = yaw;
+            setChannelsFastPair(CH_ROLL, rollValue, CH_PITCH, pitchValue);
+            setChannelFromInput(CH_THROTTLE, throttleValue);
+            setChannelFast(CH_YAW, yawValue);
+            lastRxMsg = trimmed;
+            radioStatus = "BLE CTRL";
+            updateDisplay(txCount, currentRadioFreq, radioStatus, lastRxMsg.c_str());
+            return "[BLE][ACK] compact CTRL";
+        }
+    }
+
     if (trimmed.indexOf('&') >= 0 || trimmed.indexOf(';') >= 0) {
         String combinedAck = "";
         int start = 0;
