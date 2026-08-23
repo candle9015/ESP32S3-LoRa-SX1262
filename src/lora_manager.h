@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <RadioLib.h>
+#include "pwm_manager.h"
 
 #define RADIO_CS    8
 #define RADIO_DIO1  14
@@ -31,6 +32,10 @@ extern String currentRadioFreq;
 extern uint32_t isWireStarted;
 extern uint32_t isPwmStarted;
 extern uint32_t isPwmResponding;
+extern int throttleValue;
+extern int rollValue;
+extern int pitchValue;
+extern int yawValue;
 
 constexpr uint8_t CH_THROTTLE = 0;
 constexpr uint8_t CH_ROLL = 1;
@@ -47,5 +52,7 @@ String processKeyValueCommand(const String& keyIn, const String& valueIn, const 
 bool isLiveControlKey(const String& key);
 bool isLiveRemoteTextCommand(const String& cmd);
 void setChannelFast(uint8_t channel, long value);
+void setChannelsFastPair(uint8_t channelA, long valueA, uint8_t channelB, long valueB);
+void setChannelFromInput(uint8_t channel, long value);
 
 #endif

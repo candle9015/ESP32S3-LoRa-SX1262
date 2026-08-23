@@ -3,6 +3,8 @@
 #include "display_manager.h"
 #include "control_manager.h"
 #include "imu_manager.h"
+#include "pwm_manager.h"
+#include "protocol.h"
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristicTX = NULL;
@@ -198,11 +200,17 @@ void broadcastBleTelemetry() {
         return;
     }
 
-    String payload = buildImuTelemetryPayload("STATUS | RSSI=" + String(radio.getRSSI()) + " dBm");
-    payload.trim();
-    if (payload.length() == 0) {
-        return;
-    }
+    ImuTelemetry telemetry = getIMUState();
+    String payload = compact_protocol::encodeTelemetryFrame(
+        0,
+        0,
+        static_cast<uint8_t>(throttleValue),
+        static_cast<int16_t>(telemetry.rollDeg),
+        static_cast<int16_t>(telemetry.pitchDeg),
+        static_cast<int16_t>(telemetry.yawRateDegPerSec),
+        static_cast<int16_t>(telemetry.tempC * 10.0f),
+        static_cast<int8_t>(radio.getRSSI()),
+        100);
 
     pCharacteristicTX->setValue(payload.c_str());
     pCharacteristicTX->notify();

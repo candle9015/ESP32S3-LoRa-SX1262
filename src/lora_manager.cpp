@@ -2,6 +2,8 @@
 #include "display_manager.h"
 #include "control_manager.h"
 #include "imu_manager.h"
+#include "pwm_manager.h"
+#include "protocol.h"
 
 const char testPayload[] = "HELTEC TEST";
 Module* mod = new Module(RADIO_CS, RADIO_DIO1, RADIO_RST, RADIO_BUSY);
@@ -48,6 +50,29 @@ void setup4LoRa() {
 
 void rxMsgParserAndResponse(String rxData) {
     Serial.println("[Radio] from RX: " + rxData );
+
+    if (rxData.startsWith("C|")) {
+        uint8_t seq = 0;
+        uint8_t flags = 0;
+        uint8_t throttle = 0;
+        uint8_t roll = 0;
+        uint8_t pitch = 0;
+        uint8_t yaw = 0;
+        uint8_t crc = 0;
+
+        if (compact_protocol::parseControlFrame(rxData, seq, flags, throttle, roll, pitch, yaw, crc)) {
+            throttleValue = throttle;
+            rollValue = roll;
+            pitchValue = pitch;
+            yawValue = yaw;
+            setChannelsFastPair(CH_ROLL, rollValue, CH_PITCH, pitchValue);
+            setChannelFromInput(CH_THROTTLE, throttleValue);
+            setChannelFast(CH_YAW, yawValue);
+            Serial.printf("[Radio] compact CTRL seq=%u thr=%u roll=%u pitch=%u yaw=%u\n",
+                          seq, throttle, roll, pitch, yaw);
+            return;
+        }
+    }
 
     if (rxData == "PING") {
         Serial.println("[Radio] Ricevuto PING, invio PONG...");
