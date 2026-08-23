@@ -23,5 +23,6 @@ float getPitchDeg();
 float getYawRateDegPerSec();
 float getTemperatureC();
 ImuTelemetry getIMUState();
+String buildImuTelemetryPayload(const String& prefix = "STATUS");
 
 #endif

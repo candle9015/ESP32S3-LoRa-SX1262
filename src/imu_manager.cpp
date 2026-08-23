@@ -137,7 +137,7 @@ void updateIMU() {
 
     yawRateDegPerSec = gz;
 
-    if (millis() - lastImuDebugMs >= 500) {
+    if (millis() - lastImuDebugMs >= 5000) {
         lastImuDebugMs = millis();
         Serial.printf("[IMU] roll=%.1f pitch=%.1f yawRate=%.1f temp=%.1f\n",
                       rollDeg, pitchDeg, yawRateDegPerSec, tempC);
@@ -175,4 +175,26 @@ ImuTelemetry getIMUState() {
     state.tempC = tempC;
     state.valid = imuReady;
     return state;
+}
+
+String buildImuTelemetryPayload(const String& prefix) {
+    ImuTelemetry state = getIMUState();
+    String payload = prefix;
+
+    if (!state.valid) {
+        payload += " | IMU=INVALID";
+        return payload;
+    }
+
+    payload += " | ROLL=" + String(state.rollDeg, 1);
+    payload += " | PITCH=" + String(state.pitchDeg, 1);
+    payload += " | YAW_RATE=" + String(state.yawRateDegPerSec, 1);
+    payload += " | AX=" + String(state.accelX, 2);
+    payload += " | AY=" + String(state.accelY, 2);
+    payload += " | AZ=" + String(state.accelZ, 2);
+    payload += " | TEMP=" + String(state.tempC, 1);
+
+    Serial.printf("[IMU] Telemetry Payload: %s\n", payload.c_str());
+
+    return payload;
 }

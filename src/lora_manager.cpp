@@ -1,6 +1,7 @@
 #include "lora_manager.h"
 #include "display_manager.h"
 #include "control_manager.h"
+#include "imu_manager.h"
 
 const char testPayload[] = "HELTEC TEST";
 Module* mod = new Module(RADIO_CS, RADIO_DIO1, RADIO_RST, RADIO_BUSY);
@@ -58,7 +59,7 @@ void rxMsgParserAndResponse(String rxData) {
 
     if (rxData == "STATUS") {
         txCount++;
-        String statusMsg = "[ACK] STATUS: OK | RSSI: " + String(radio.getRSSI()) + "dBm";
+        String statusMsg = "[ACK] " + buildImuTelemetryPayload("STATUS: OK | RSSI=" + String(radio.getRSSI()) + "dBm");
         radio.transmit(statusMsg);
         return;
     }

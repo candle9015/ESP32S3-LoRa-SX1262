@@ -2,6 +2,7 @@
 #include "lora_manager.h"
 #include "display_manager.h"
 #include "control_manager.h"
+#include "imu_manager.h"
 
 BLEServer* pServer = NULL;
 BLECharacteristic* pCharacteristicTX = NULL;
@@ -129,7 +130,7 @@ String handleBleCommand(const String& command) {
     }
 
     if (trimmed == "STATUS") {
-        return "[BLE][ACK] STATUS | RSSI=" + String(radio.getRSSI()) + " dBm";
+        return "[BLE][ACK] " + buildImuTelemetryPayload("STATUS | RSSI=" + String(radio.getRSSI()) + " dBm");
     }
 
     if (trimmed == "ARM" || trimmed == "DISARM" || trimmed == "HOVER" || trimmed == "EMERGENCY_STOP" ||
