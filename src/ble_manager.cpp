@@ -70,8 +70,25 @@ void setupBLE() {
     );
 
     pCharacteristicRX->setCallbacks(new MyCallbacks());
-    pCharacteristicTX->addDescriptor(new BLE2902());
+
+    // FIX: il descrittore CCCD (0x2902) deve avere permesso di scrittura
+    // esplicito. Senza questa riga, Windows (che scrive il CCCD in modo
+    // esplicito per abilitare le notify, a differenza di macOS/iOS) riceve
+    // un rifiuto GATT_WRITE_NOT_PERMIT e le notify non si attivano mai,
+    // pur restando la connessione GATT valida.
+    BLE2902* pTxCccd = new BLE2902();
+    pTxCccd->setAccessPermissions(ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE);
+    pCharacteristicTX->addDescriptor(pTxCccd);
+
     pService->start();
+
+    // Debug: stampa gli handle assegnati per poter correlare eventuali
+    // errori GATT (es. "GATT_WRITE_NOT_PERMIT, handle:0x00xx") con
+    // l'attributo esatto a cui si riferiscono.
+    Serial.printf("[BLE][DEBUG] Service handle:        0x%04x\n", pService->getHandle());
+    Serial.printf("[BLE][DEBUG] RX characteristic handle: 0x%04x\n", pCharacteristicRX->getHandle());
+    Serial.printf("[BLE][DEBUG] TX characteristic handle: 0x%04x\n", pCharacteristicTX->getHandle());
+    Serial.printf("[BLE][DEBUG] TX CCCD descriptor handle: 0x%04x\n", pTxCccd->getHandle());
 
     BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(SERVICE_UUID);
