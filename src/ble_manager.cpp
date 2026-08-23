@@ -19,7 +19,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0) {
             bleIncomingMsg = String(value.c_str());
-            Serial.print("[BLE] Ricevuto da iOS: ");
+            //Serial.print("[BLE] Ricevuto da iOS: ");
             Serial.println(bleIncomingMsg);
 
             String ack = handleBleCommand(bleIncomingMsg);
