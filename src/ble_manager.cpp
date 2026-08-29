@@ -3,6 +3,7 @@
 #include "display_manager.h"
 #include "control_manager.h"
 #include "imu_manager.h"
+#include "gps_manager.h"
 #include "pwm_manager.h"
 #include "protocol.h"
 
@@ -175,7 +176,13 @@ String handleBleCommand(const String& command) {
     }
 
     if (trimmed == "STATUS") {
-        return "[BLE][ACK] " + buildImuTelemetryPayload("STATUS | RSSI=" + String(radio.getRSSI()) + " dBm");
+        String response = "[BLE][ACK] " + buildImuTelemetryPayload("STATUS | RSSI=" + String(radio.getRSSI()) + " dBm");
+        response += " | GPS: " + getGPSStatusString();
+        return response;
+    }
+
+    if (trimmed == "GPS_STATUS") {
+        return buildGpsTelemetryPayload("GPS_STATUS");
     }
 
     if (trimmed == "ARM" || trimmed == "DISARM" || trimmed == "HOVER" || trimmed == "EMERGENCY_STOP" ||

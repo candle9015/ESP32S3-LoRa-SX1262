@@ -4,6 +4,7 @@
 #include "ble_manager.h"
 #include "pwm_manager.h"
 #include "imu_manager.h"
+#include "gps_manager.h"
 
 #define VEXT_PIN 45
 
@@ -15,6 +16,7 @@ void setup() {
     setupDisplay();
     setup4LoRa();
     setupIMU();
+    setupGPS();
 
     yawValue = 128;
     rollValue = 128;
@@ -36,6 +38,7 @@ void updateDataMonitor(uint32_t &lastDisplayUpdate) {
 void loop() {
     static uint32_t lastDisplayUpdate = 0;
     updateIMU();
+    updateGPS();
     RX_Manager(lastDisplayUpdate);
     updateBleTelemetryLoop();
     updateDataMonitor(lastDisplayUpdate);
