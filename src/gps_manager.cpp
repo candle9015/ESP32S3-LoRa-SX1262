@@ -2,9 +2,9 @@
 #include <TinyGPS++.h>
 #include <HardwareSerial.h>
 
-// UART1 sul pin RX=21, TX=44
-#define GPS_RX_PIN 21
-#define GPS_TX_PIN 44
+// UART1 sul pin RX=47, TX=48
+#define GPS_RX_PIN 47
+#define GPS_TX_PIN 48
 #define GPS_BAUD 9600
 
 static HardwareSerial gpsSerial(1);
@@ -22,7 +22,7 @@ static uint32_t lastFixTime = 0;
 static uint32_t lastGpsDebugMs = 0;
 
 void setupGPS() {
-    Serial.println("[GPS] Initializing GY-GPS6MV2 on UART1 (RX=21, TX=44, 9600 baud)");
+    Serial.println("[GPS] Initializing GY-GPS6MV2 on UART1 (RX=47, TX=48, 9600 baud)");
     
     // Inizializza UART1
     gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
@@ -49,14 +49,10 @@ void updateGPS() {
         char c = gpsSerial.read();
         if (gps.encode(c)) {
             // Una frase NMEA completa è stata parsata
-            if (gps.location.isUpdated()) {
+            if (gps.location.isUpdated() && gps.location.isValid()) {
                 latitude = gps.location.lat();
                 longitude = gps.location.lng();
-                gpsFixed = gps.location.isValid();
-                
-                if (gpsFixed) {
-                    lastFixTime = millis();
-                }
+                lastFixTime = millis();
             }
             
             if (gps.altitude.isUpdated()) {
@@ -77,16 +73,32 @@ void updateGPS() {
         }
     }
 
+    // TinyGPS mantiene il fix valido finche il dato non diventa obsoleto.
+    gpsFixed = gps.location.isValid() && gps.location.age() < 10000;
+
     // Debug log periodico
     uint32_t now = millis();
     if (now - lastGpsDebugMs >= 5000) {
         lastGpsDebugMs = now;
+        const uint32_t charsProcessed = gps.charsProcessed();
+        const uint32_t passedChecksums = gps.passedChecksum();
+        const uint32_t failedChecksums = gps.failedChecksum();
+        const int bytesAvailable = gpsSerial.available();
         if (gpsFixed) {
             Serial.printf("[GPS] FIX - Lat: %.6f, Lon: %.6f, Alt: %.1f m, Sats: %u, Speed: %.1f kts\n",
                          latitude, longitude, altitude, satellites, speedKnots);
+        } else if (charsProcessed == 0 && bytesAvailable == 0) {
+            Serial.printf("[GPS] NO DATA - UART1 RX GPIO %d, TX GPIO %d, baud %d. Verifica alimentazione e collega GPS TX -> ESP32 GPIO %d. (available=%d)\n",
+                          GPS_RX_PIN, GPS_TX_PIN, GPS_BAUD, GPS_RX_PIN, bytesAvailable);
+        } else if (passedChecksums == 0 && failedChecksums > 0) {
+            Serial.printf("[GPS] INVALID NMEA - No valid checksum. Possible baud mismatch (currently %d). Chars: %lu, Passed: %lu, Failed: %lu\n",
+                         GPS_BAUD, charsProcessed, passedChecksums, failedChecksums);
+        } else if (passedChecksums > 0) {
+            Serial.printf("[GPS] NO FIX - Valid NMEA received, waiting for satellites. Chars: %lu, Valid sentences: %lu, With fix: %lu, Failed: %lu, Sats: %u\n",
+                         charsProcessed, passedChecksums, gps.sentencesWithFix(), failedChecksums, satellites);
         } else {
-            Serial.printf("[GPS] NO FIX - Chars processed: %lu, Sentences: %lu, Failed: %lu, Sats: %u\n",
-                         gps.charsProcessed(), gps.sentencesWithFix(), gps.failedChecksum(), satellites);
+            Serial.printf("[GPS] NO FIX - Waiting for NMEA data. Chars: %lu, Valid sentences: %lu, Failed: %lu, Sats: %u, Available: %d\n",
+                         charsProcessed, passedChecksums, failedChecksums, satellites, bytesAvailable);
         }
     }
 }

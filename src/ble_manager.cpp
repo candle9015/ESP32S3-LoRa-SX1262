@@ -245,6 +245,11 @@ void broadcastBleTelemetry() {
 
     pCharacteristicTX->setValue(payload.c_str());
     pCharacteristicTX->notify();
+
+    String gpsPayload = buildGpsTelemetryPayload("GPS_STATUS");
+    pCharacteristicTX->setValue(gpsPayload.c_str());
+    pCharacteristicTX->notify();
+
     lastTelemetryBroadcastMs = millis();
     // Serial.printf("[BLE] Telemetry broadcast: %s\n", payload.c_str());
 }
