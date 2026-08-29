@@ -86,6 +86,30 @@ String encodeTelemetryFrame(uint8_t seq,
     return out;
 }
 
+String encodeGpsFrame(double latitude,
+                      double longitude,
+                      double altitude,
+                      float speedKnots,
+                      float course,
+                      uint8_t satellites,
+                      bool valid) {
+    String out = "G|";
+    out += String(latitude, 6);
+    out += "|";
+    out += String(longitude, 6);
+    out += "|";
+    out += String(altitude, 1);
+    out += "|";
+    out += String(speedKnots, 1);
+    out += "|";
+    out += String(course, 1);
+    out += "|";
+    out += String(satellites);
+    out += "|";
+    out += valid ? "1" : "0";
+    return out;
+}
+
 bool parseControlFrame(const String& frame,
                        uint8_t& seq,
                        uint8_t& flags,

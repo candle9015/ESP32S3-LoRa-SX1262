@@ -246,7 +246,15 @@ void broadcastBleTelemetry() {
     pCharacteristicTX->setValue(payload.c_str());
     pCharacteristicTX->notify();
 
-    String gpsPayload = buildGpsTelemetryPayload("GPS_STATUS");
+    GpsTelemetry gps = getGPSState();
+    String gpsPayload = compact_protocol::encodeGpsFrame(
+        gps.latitude,
+        gps.longitude,
+        gps.altitude,
+        gps.speedKnots,
+        gps.courseTrue,
+        gps.satellites,
+        gps.valid);
     pCharacteristicTX->setValue(gpsPayload.c_str());
     pCharacteristicTX->notify();
 

@@ -7,6 +7,7 @@ namespace compact_protocol {
 
 constexpr char kControlPrefix = 'C';
 constexpr char kTelemetryPrefix = 'T';
+constexpr char kGpsPrefix = 'G';
 
 String encodeControlFrame(uint8_t seq,
                           uint8_t flags,
@@ -24,6 +25,14 @@ String encodeTelemetryFrame(uint8_t seq,
                             int16_t tempC10,
                             int8_t rssi,
                             uint8_t battery);
+
+            String encodeGpsFrame(double latitude,
+                            double longitude,
+                            double altitude,
+                            float speedKnots,
+                            float course,
+                            uint8_t satellites,
+                            bool valid);
 
 bool parseControlFrame(const String& frame,
                        uint8_t& seq,
